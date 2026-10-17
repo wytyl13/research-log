@@ -1,0 +1,6 @@
+_backup_v2/
+_archive/
+_new_v3/
+__pycache__/
+*.pyc
+.claude/
