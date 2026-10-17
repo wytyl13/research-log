@@ -1,188 +1,178 @@
-"""compile.py — 确定性编译：三库 → 上下文卡.md（AI 系统提示词）+ 总览.md（人看的）。
+"""compile.py — 确定性编译（v3）：三库 → 上下文卡.md（AI 系统提示词）+ 总览.md（人看）。
 
-零 token，随时可重跑。所有路径通过 store.X 动态访问（selftest 可整体换到临时目录）。
+零 token，随时可重跑。库里状态全是文字；图标只在本模块渲染进总览。
+所有路径通过 store.X 动态访问（selftest 可整体换到临时目录）。
 """
 import datetime
 import re
 
 import store
 
+ICON = {"建议中": "⬜", "已采纳": "✅", "已被取代": "🔄", "已废弃": "❌",
+        "待验证": "⬜", "验证中": "🟨", "成立": "✅", "不成立": "❌", "搁置": "⏸",
+        "未开始": "⬜", "进行中": "🟨", "已完成": "✅",
+        "未读": "⬜", "在读": "🟨", "已读": "✅"}
+
+
+def _icon(status):
+    for k, v in ICON.items():
+        if status.startswith(k):
+            return v
+    return ""
+
+
+def _section(text, name):
+    m = re.search(rf"^## {name}\s*\n(.*?)(?=^## |\Z)", text, re.S | re.M)
+    return m.group(1).strip() if m else ""
+
 
 # ---------- 解析 ----------
 
 def load_adrs():
     out = []
-    for f in sorted(store.D_DIR.glob("adr-*.md")):
-        m = re.match(r"adr-(\d+)", f.name)
+    for f in sorted(store.D_DIR.glob("????-*.md")):
+        t = f.read_text(encoding="utf-8")
+        m = re.search(r"^# (\d+)\. (.+)$", t, re.M)
         if not m:
             continue
-        t = f.read_text(encoding="utf-8")
-
-        def field(name):
-            r = re.search(rf"^-\s*{name}\s*:\s*(.*)$", t, re.M)
-            return r.group(1).strip() if r else ""
-        title = re.search(r"^#\s+ADR-\d+\s*[:：]\s*(.+)$", t, re.M)
-        out.append(dict(
-            id=f"adr-{int(m.group(1)):03d}",
-            title=title.group(1).strip() if title else f.stem,
-            status=field("状态") or "⬜", date=field("日期"),
-            decision=field("决定") or field("背景"), basis=field("依据")))
+        d = re.search(r"^日期:\s*(.+)$", t, re.M)
+        st = _section(t, "状态").splitlines()
+        out.append(dict(num=int(m.group(1)), id=f"{int(m.group(1)):04d}", title=m.group(2).strip(),
+                        file=f.stem, date=d.group(1).strip() if d else "",
+                        status=st[0].strip() if st else "", decision=_section(t, "决定")))
     return out
 
 
-def load_process():
-    """返回 {month: {hyps, reads, exps}}，倒序（最新月在前）。"""
+def load_logbook():
+    """全部条目（跨全部日文件），最新日在前、日内按出现顺序。"""
     out = []
-    for f in sorted(store.P_DIR.glob("*.md"), reverse=True):
+    for f in sorted(store.P_DIR.glob("????-??-??.md"), reverse=True):
         t = f.read_text(encoding="utf-8")
-        hyps = [dict(id=m.group(1), text=m.group(2).strip(), exp=m.group(3).strip(), status=m.group(4))
-                for m in re.finditer(r"^\|\s*(H\d+)\s*\|\s*(.+?)\s*\|\s*(.*?)\s*\|\s*(\S+)\s*\|", t, re.M)]
-        reads = [dict(id=m.group(1), material=m.group(2).strip(), serves=m.group(3).strip(),
-                      status=m.group(4), note=m.group(5).strip())
-                 for m in re.finditer(r"^\|\s*(R\d+)\s*\|\s*(.+?)\s*\|\s*(.*?)\s*\|\s*(\S+)\s*\|\s*(.*?)\s*\|", t, re.M)]
-        exps = []
-        for m in re.finditer(r"^###\s+(\d{4}-\d{2}-\d{2})\s+(E\d+)\s*[:：]\s*(.+?)\s*([⬜🟨🟡✅❌⏸🔄⬆️])?\s*$", t, re.M):
-            eid = m.group(2)
-            tail = t[m.end():m.end() + 600]
-            hyp = re.search(r"^-\s*假设:\s*(.+)$", tail, re.M)
-            dep = re.search(r"^-\s*前置:\s*(.+)$", tail, re.M)
-            concl = re.search(r"^-\s*结论:\s*(.+)$", tail, re.M)
-            exps.append(dict(date=m.group(1), id=eid, title=m.group(3).strip(),
-                             status=m.group(4) or "⬜", hypothesis=hyp.group(1).strip() if hyp else "",
-                             depends=dep.group(1).strip() if dep else "",
-                             conclusion=concl.group(1).strip() if concl else ""))
-        out.append(dict(month=f.stem, hyps=hyps, reads=reads, exps=exps))
+        heads = list(store.ENTRY_HEAD.finditer(t))
+        for i, m in enumerate(heads):
+            block = t[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(t)]
+            fields = {k.strip(): v.strip() for k, v in store.FIELD_LINE.findall(block)}
+            out.append(dict(day=f.stem, id=m.group(1), letter=m.group(1)[0], title=m.group(2).strip(),
+                            status=fields.get("状态", ""), fields=fields))
     return out
 
 
-def load_ideas():
+def load_cards():
     out = []
     for f in sorted(store.I_DIR.glob("*.md")):
         t = f.read_text(encoding="utf-8")
-        fm = t.split("---")[1] if t.startswith("---") else ""
-
-        def fmfield(k, default=""):
-            r = re.search(rf"^{k}\s*:\s*(.*)$", fm, re.M)
-            return r.group(1).strip().strip('"') if r else default
-        title = re.search(r"^#\s+(.+)$", t, re.M)
-        out.append(dict(id=fmfield("id", "0"), file=f.stem, title=title.group(1).strip() if title else f.stem,
-                        status=fmfield("status", "🟡"), date=fmfield("date"),
-                        owner=fmfield("owner"), body=t.split("---", 2)[-1].strip().splitlines()[:1]))
-    return sorted(out, key=lambda x: int(x["id"]) if x["id"].isdigit() else 0)
+        title = re.search(r"^# (.+)$", t, re.M)
+        body = re.split(r"^# .+?$", t, maxsplit=1, flags=re.M)[1] if title else t
+        body = re.split(r"^链接：", body, maxsplit=1, flags=re.M)[0].strip()
+        out.append(dict(ts=f.stem[:12], file=f.stem, title=title.group(1).strip() if title else f.stem,
+                        body=body.splitlines()[0] if body else ""))
+    return sorted(out, key=lambda x: x["ts"], reverse=True)
 
 
 # ---------- 生成 ----------
 
 def _north():
-    if store.NORTH.exists():
-        return store.NORTH.read_text(encoding="utf-8").strip()
-    return "（缺 方向.md）"
+    return store.NORTH.read_text(encoding="utf-8").strip() if store.NORTH.exists() else "（缺 方向.md）"
+
+
+def _first(s):
+    return s.splitlines()[0] if s else ""
 
 
 def build_card():
     adrs = load_adrs()
-    months = load_process()
-    ideas = load_ideas()
-    settled = [a for a in adrs if a["status"] in ("✅", "❌", "🔄")]
-    queued = [a for a in adrs if a["status"] in ("⬜", "🟨")]
-    far = [a for a in adrs if a["status"] == "⏸"]
-    exps = [e for mo in months for e in mo["exps"]]
-    open_exps = [e for e in exps if e["status"] in ("⬜", "🟨")]
-    done_exps = [e for e in exps if e["status"] in ("✅", "❌")]
-    hyps = [h for mo in months for h in mo["hyps"]]
-    open_hyps = [h for h in hyps if h["status"] == "⬜"]
-    hot = [i for i in ideas if i["status"] == "🟡"]
+    entries = load_logbook()
+    cards = load_cards()
+    acc = [a for a in adrs if a["status"] == "已采纳"]
+    prop = [a for a in adrs if a["status"] == "建议中"]
+    gone = [a for a in adrs if a["status"].startswith(("已被取代", "已废弃"))]
     L = []
     L.append("# 🎫 上下文卡\n")
-    L.append("> 本文件由 compile.py 从三库自动生成，勿手改。作为系统提示词时，从下一行开始全选粘贴。\n")
+    L.append("> 由 compile.py 从三库自动生成，勿手改。作系统提示词时从下一行起全选粘贴。\n")
     L.append("## 我在研究什么\n")
     L.append(_north() + "\n")
     L.append("## 已定的决策（不要动摇我）\n")
-    for a in settled:
-        L.append(f"- {a['id']} {a['title']}：{a['decision']}" + (f"（依据：{a['basis']}）" if a["basis"] else ""))
+    for a in acc:
+        L.append(f"- ADR-{a['id']} {a['title']}" + (f"——{_first(a['decision'])}" if a["decision"] else ""))
     L.append("")
-    L.append("## 排队中的实现思路\n")
-    for a in queued:
-        L.append(f"- {a['id']} {a['title']} {a['status']}：{a['decision']}")
-    if far:
-        L.append(f"- 远期搁置：" + "；".join(f"{a['id']} {a['title']}" for a in far))
+    L.append("## 排队中的思路（建议中）\n")
+    for a in prop:
+        L.append(f"- ADR-{a['id']} {a['title']}" + (f"——{_first(a['decision'])}" if a["decision"] else ""))
+    if gone:
+        L.append("- 已取代/废弃：" + "；".join(f"ADR-{a['id']} {a['title']}（{a['status']}）" for a in gone))
+    if not prop:
+        L.append("-（暂无）")
     L.append("")
     L.append("## 实验与假设\n")
-    if open_exps:
-        L.append("当前实验：")
-        for e in open_exps:
-            L.append(f"- {e['id']} {e['title']} {e['status']}"
-                     + (f"（前置 {e['depends']}）" if e["depends"] else "")
-                     + (f"——验证 {e['hypothesis']}" if e["hypothesis"] else ""))
-    if open_hyps:
-        L.append("未决假设：")
-        for h in open_hyps:
-            L.append(f"- {h['id']} {h['text']}（{h['exp']}）")
-    if done_exps:
-        L.append("已有结论：" + "；".join(f"{e['id']} {e['conclusion']}" for e in done_exps if e["conclusion"]))
+    for e in (x for x in entries if x["letter"] == "E"):
+        dep = e["fields"].get("前置", "")
+        L.append(f"- {e['id']} {e['title']}（{e['status']}，{e['day']}）" + (f" ← 前置 {dep}" if dep else ""))
+    for h in (x for x in entries if x["letter"] == "H"):
+        ve = h["fields"].get("验证实验", "")
+        L.append(f"- {h['id']} {h['title']}（{h['status']}）" + (f" ← 由 {ve} 验证" if ve else ""))
     L.append("")
-    L.append("## 想法池（🟡 候选中）\n")
-    for i in hot:
-        L.append(f"- {i['id']} {i['title']}" + (f"（归属 {i['owner']}）" if i["owner"] else ""))
-    if not hot:
-        L.append("-（暂无候选想法）")
+    reads = [x for x in entries if x["letter"] == "R"]
+    if reads:
+        L.append("## 阅读\n")
+        for r in reads:
+            note = r["fields"].get("收获", "")
+            L.append(f"- {r['id']} {r['title']}（{r['status']}）" + (f"——{note}" if note else ""))
+        L.append("")
+    L.append("## 想法卡片（无状态，新在前）\n")
+    for c in cards[:15]:
+        L.append(f"- {c['title']}" + (f"：{c['body'][:60]}" if c["body"] else ""))
     L.append("")
-    L.append(f"## 对 AI 的要求\n")
+    L.append("## 对 AI 的要求\n")
     L.append("延续以上状态讨论，不要重新发明方向。产生值得记录的新想法、决策或实验结果时，提醒我记录"
-             "（实时用 MCP 工具 add_idea / add_decision / set_status，或把材料丢进 inbox/ 等同步）。\n")
+             "（实时用 MCP 工具 add_card / add_adr / set_status，或把材料丢进 inbox/ 等同步）。\n")
     return "\n".join(L)
 
 
 def build_overview():
-    adrs, months, ideas = load_adrs(), load_process(), load_ideas()
+    adrs, entries, cards = load_adrs(), load_logbook(), load_cards()
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     L = [f"# 📊 总览（编译于 {now}）\n"]
 
-    def stat(items):
+    def stat(items, key="status"):
         c = {}
         for x in items:
-            c[x["status"]] = c.get(x["status"], 0) + 1
-        return " ｜ ".join(f"{k}×{v}" for k, v in sorted(c.items())) or "空"
+            k = next((w for w in store.ADR_STATUSES + store.HYP_STATUSES + store.EXP_STATUSES
+                      + store.READ_STATUSES if x[key].startswith(w)), x[key] or "无状态")
+            c[k] = c.get(k, 0) + 1
+        return " ｜ ".join(f"{_icon(k)}{k}×{v}" for k, v in sorted(c.items())) or "空"
 
     L.append(f"- decisions：{len(adrs)} 条（{stat(adrs)}）")
-    L.append(f"- ideas：{len(ideas)} 张（{stat(ideas)}）")
-    allexps = [e for mo in months for e in mo["exps"]]
-    allhyps = [h for mo in months for h in mo["hyps"]]
-    allreads = [r for mo in months for r in mo["reads"]]
-    L.append(f"- experiments：{len(allexps)} 个（{stat(allexps)}）｜ 假设 {len(allhyps)} 条 ｜ 阅读 {len(allreads)} 篇\n")
-    L.append("## 决策与思路（decisions/）\n")
+    L.append(f"- 记录本条目：{len(entries)} 条 ｜ 实验 {sum(1 for e in entries if e['letter'] == 'E')}"
+             f"（{stat([e for e in entries if e['letter'] == 'E'])}）"
+             f"｜ 假设 {sum(1 for e in entries if e['letter'] == 'H')}"
+             f"（{stat([e for e in entries if e['letter'] == 'H'])}）"
+             f"｜ 阅读 {sum(1 for e in entries if e['letter'] == 'R')}")
+    L.append(f"- ideas：{len(cards)} 张卡片\n")
+    L.append("## 决策与思路（decisions/，严格 ADR）\n")
     L.append("| ID | 标题 | 状态 | 日期 |")
     L.append("|---|---|---|---|")
     for a in adrs:
-        L.append(f"| {a['id']} | {a['title']} | {a['status']} | {a['date']} |")
+        L.append(f"| ADR-{a['id']} | {a['title']} | {_icon(a['status'])} {a['status']} | {a['date']} |")
     L.append("")
-    L.append("## 想法（ideas/）\n")
-    L.append("| ID | 标题 | 状态 | 归属 |")
-    L.append("|---|---|---|---|")
-    for i in ideas:
-        L.append(f"| {i['id']} | {i['title']} | {i['status']} | {i['owner']} |")
+    L.append("## 实验记录本（process/，按日）\n")
+    L.append("| 日 | ID | 标题/假设 | 状态 | 关键字段 |")
+    L.append("|---|---|---|---|---|")
+    for e in entries:
+        extra = e["fields"].get("结论") or e["fields"].get("收获") or e["fields"].get("验证实验") or ""
+        L.append(f"| {e['day']} | {e['id']} | {e['title'][:60]} | {_icon(e['status'])} {e['status']} | {extra[:60]} |")
     L.append("")
-    L.append("## 实验与假设（process/）\n")
-    L.append("| ID | 标题/假设 | 状态 | 结论 |")
-    L.append("|---|---|---|---|")
-    for mo in months:
-        for e in mo["exps"]:
-            L.append(f"| {e['id']} | {e['title']} | {e['status']} | {e['conclusion']} |")
-        for h in mo["hyps"]:
-            L.append(f"| {h['id']} | {h['text']} | {h['status']} | {h['exp']} |")
-    L.append("")
-    L.append("## 阅读（process/）\n")
-    L.append("| ID | 材料 | 状态 | 收获 |")
-    L.append("|---|---|---|---|")
-    for mo in months:
-        for r in mo["reads"]:
-            L.append(f"| {r['id']} | {r['material']} | {r['status']} | {r['note']} |")
+    L.append("## 想法卡片（ideas/，Zettelkasten，新在前）\n")
+    L.append("| 时间戳 | 标题 |")
+    L.append("|---|---|")
+    for c in cards:
+        L.append(f"| {c['ts']} | {c['title']} |")
     return "\n".join(L)
 
 
 def run():
-    store.CARD.write_text(build_card() + "\n", encoding="utf-8")
-    store.OVERVIEW.write_text(build_overview() + "\n", encoding="utf-8")
+    with store._Lock():
+        store.CARD.write_text(build_card() + "\n", encoding="utf-8")
+        store.OVERVIEW.write_text(build_overview() + "\n", encoding="utf-8")
     return f"已编译 {store.CARD.name} + {store.OVERVIEW.name}"
 
 

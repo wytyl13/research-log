@@ -9,6 +9,7 @@
 """
 import datetime
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -25,23 +26,24 @@ CHAR_LIMIT = 40000     # 单个材料的截断长度
 PROMPT_HEAD = """你是科研记录提炼器。下面给你我的三库索引和一些原始材料（聊天导出/笔记/会话记录）。
 任务：从材料中提炼出值得长期保留的条目，输出**一个 JSON 对象**，格式：
 {"items": [
- {"type":"idea","title":"...","body":"一两句展开","status":"🟡","owner":"adr-005","links":[]},
- {"type":"decision","title":"...","background":"...","decision":"...","consequence":"...","status":"✅","basis":"..."},
- {"type":"experiment","eid":"E7","title":"...","hypothesis":"...","plan":"...","depends":"E2"},
- {"type":"hypothesis","hid":"H7","text":"可证伪的一句话","experiment":"E7"},
- {"type":"experiment_result","eid":"E2","result":"数字/现象","conclusion":"H1 ✅/❌ + 一句话"},
- {"type":"reading","rid":"R7","material":"...","serves":"服务谁","note":"一句话收获"},
- {"type":"status","target":"adr-005","status":"❌","note":"一句原因"},
- {"type":"status","target":"H1","status":"✅","note":"..."},
- {"type":"status","target":"idea-3","status":"❌","note":"..."},
+ {"type":"idea","title":"主张式短标题","body":"一两句展开","links":["只准用索引中出现过的卡片文件名"]},
+ {"type":"decision","title":"...","background":"...","decision":"...","consequence":"...","status":"已采纳 或 建议中","basis":"..."},
+ {"type":"experiment","title":"...","hypothesis":"H1 或一句话","plan":"...","depends":"E2 或空"},
+ {"type":"hypothesis","text":"可证伪的一句话","experiment":"E2"},
+ {"type":"reading","material":"...","serves":"服务谁","note":"一句话收获"},
+ {"type":"experiment_result","eid":"E2","result":"数字/现象","conclusion":"H1 成立/不成立 + 一句话"},
+ {"type":"status","target":"adr-5 / E2 / H1 / R1","status":"枚举表内的合法值","note":"一句原因"},
  {"type":"weekly","week":"2026-W43","lines":["完成: ...","卡点: ...","下周唯一目标: ..."]}
 ]}
 规则：
 1. 只输出 JSON，不要任何其他文字。
 2. 索引里已存在的条目绝对不要重复添加；材料只是讨论了已有条目且无新信息时，不要产生任何 item。
-3. status 可选：⬜ 未开始 🟨 进行中 🟡 感觉可行 ✅ 成立/完成 ❌ 否决 ⏸ 搁置 🔄 被取代。
-4. 拿不准归类的，宁可做成 idea，不要丢弃。
-5. weekly 仅在材料覆盖了新的一周进展时产生。
+3. 状态只用这些词——ADR：建议中/已采纳/已被取代/已废弃；假设：待验证/验证中/成立/不成立/搁置；实验：未开始/进行中/已完成/搁置；阅读：未读/在读/已读。想法卡片没有状态。
+4. experiment/hypothesis/reading 不要自己编编号（E/H/R 由系统分配）；experiment_result 的 eid 必须是索引里已有的。
+5. links 只准引用索引中出现过的文件名，禁止 idea-3 这类简写；定不了就留空数组。
+6. 字符串值内部不要出现英文双引号，引用一律用中文引号「」。
+7. 拿不准归类的，宁可做成 idea，不要丢弃。
+8. weekly 仅在材料覆盖了新的一周进展时产生。
 """
 
 
@@ -78,12 +80,9 @@ def gather(state):
 
 def build_index():
     import compile as C
-    parts = ["decisions: " + "; ".join(f"{a['id']} {a['title']} {a['status']}" for a in C.load_adrs())]
-    for mo in C.load_process():
-        parts.append(f"[{mo['month']}] exps: " + "; ".join(f"{e['id']} {e['title']} {e['status']}" for e in mo["exps"]))
-        parts.append(f"[{mo['month']}] hyps: " + "; ".join(f"{h['id']} {h['status']}" for h in mo["hyps"]))
-        parts.append(f"[{mo['month']}] reads: " + "; ".join(f"{r['id']} {r['status']}" for r in mo["reads"]))
-    parts.append("ideas: " + "; ".join(f"{i['id']} {i['title']} {i['status']}" for i in C.load_ideas()))
+    parts = ["decisions: " + "; ".join(f"ADR-{a['id']} {a['title']}（{a['status']}）" for a in C.load_adrs())]
+    parts.append("logbook: " + "; ".join(f"{e['id']} {e['title'][:40]}（{e['status']}）" for e in C.load_logbook()))
+    parts.append("cards: " + "; ".join(c["file"] for c in C.load_cards()))
     return "\n".join(parts)
 
 
@@ -113,14 +112,46 @@ def run_claude(prompt):
     return r.stdout, None
 
 
+def _repair_json(s):
+    """修复 LLM 常见毛病：字符串值内嵌未转义的英文双引号。
+    判定：字符串里的 \" 只有在后面（跳过空白）跟着 ,:}] 或结尾时才算真正的收束引号，
+    否则视为内容引号，转义之。"""
+    out, i, n, in_str = [], 0, len(s), False
+    while i < n:
+        c = s[i]
+        if not in_str:
+            if c == '"':
+                in_str = True
+            out.append(c)
+        elif c == "\\" and i + 1 < n:
+            out.extend((c, s[i + 1]))
+            i += 1
+            continue
+        elif c == '"':
+            j = i + 1
+            while j < n and s[j] in " \t\r\n":
+                j += 1
+            if j >= n or s[j] in ",:}]":
+                in_str = False
+                out.append(c)
+            else:
+                out.append('\\"')   # 内容引号 → 转义
+        else:
+            out.append(c)
+        i += 1
+    return "".join(out)
+
+
 def parse_json(out):
     s, e = out.find("{"), out.rfind("}")
     if s < 0 or e <= s:
         return None
-    try:
-        return json.loads(out[s:e + 1]).get("items", [])
-    except json.JSONDecodeError:
-        return None
+    for cand in (out[s:e + 1], _repair_json(out[s:e + 1])):
+        try:
+            return json.loads(cand).get("items", [])
+        except json.JSONDecodeError:
+            continue
+    return None
 
 
 def apply_items(items):
@@ -129,25 +160,34 @@ def apply_items(items):
         t = it.get("type", "")
         try:
             if t == "idea":
-                report.append(store.add_idea(it["title"], it.get("body", ""), it.get("status", "🟡"),
-                                              it.get("owner", ""), it.get("links")))
+                links = [store.resolve(l) for l in it.get("links") or []]
+                report.append(store.add_card(it["title"], it.get("body", ""), links))
             elif t == "decision":
-                report.append(store.add_decision(it["title"], it.get("background", ""), it.get("decision", ""),
-                                                 it.get("consequence", ""), it.get("status", "✅"), it.get("basis", "")))
+                report.append(store.add_adr(it["title"], it.get("background", ""), it.get("decision", ""),
+                                             it.get("consequence", ""), it.get("basis", ""),
+                                             it.get("status", "已采纳")))
             elif t == "experiment":
-                report.append(store.add_experiment(it.get("eid") or store.next_exp_id(), it["title"],
-                                                   it.get("hypothesis", ""), it.get("plan", ""), "⬜", it.get("depends", "")))
+                report.append(store.add_entry("E", it["title"], {
+                    "假设": it.get("hypothesis", ""), "前置": it.get("depends", ""),
+                    "方案": it.get("plan", ""), "结果": "", "结论": ""}))
             elif t == "hypothesis":
-                report.append(store.add_hypothesis(it.get("hid") or store.next_hyp_id(), it["text"], it.get("experiment", "")))
+                report.append(store.add_entry("H", it["text"], {"验证实验": it.get("experiment", "")}))
             elif t == "experiment_result":
                 report.append(store.fill_result(it["eid"], it.get("result", ""), it.get("conclusion", "")))
             elif t == "reading":
-                report.append(store.add_reading(it.get("rid") or store.next_read_id(), it["material"],
-                                                it.get("serves", ""), it.get("note", "")))
+                report.append(store.add_entry("R", it["material"],
+                                              {"服务": it.get("serves", ""), "收获": it.get("note", "")}))
             elif t == "status":
-                report.append(store.set_status(it["target"], it["status"], it.get("note", "")))
+                if re.fullmatch(r"idea[- :]?\d+", str(it.get("target", "")), re.I):
+                    report.append("跳过：想法卡片没有状态")
+                else:
+                    report.append(store.set_status(it["target"], it["status"], it.get("note", "")))
             elif t == "weekly":
-                report.append(store.add_weekly(it["week"], it.get("lines", [])))
+                fields = {}
+                for ln in it.get("lines", []):
+                    k, _, v = str(ln).partition(":")
+                    fields[k.strip()] = v.strip()
+                report.append(store.add_entry("W", it.get("week", ""), fields))
             else:
                 report.append(f"跳过未知类型 {t}")
         except Exception as ex:  # 单条失败不影响其余
