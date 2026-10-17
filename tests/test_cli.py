@@ -26,7 +26,7 @@ assert "五任务准确率" in (root / "CONTEXT.md").read_text(encoding="utf-8")
 assert cli.main(["--root", str(root), "status", "E1", "已完成"]) == 0
 assert cli.main(["--root", str(root), "result", "E1", "--result", "+12%",
                  "--conclusion", "冻结有效"]) == 0
-day = next((root / "logbook").glob("*.md")).read_text(encoding="utf-8")
+day = next((root / "records" / "logbook").glob("*.md")).read_text(encoding="utf-8")
 assert "- 状态: 已完成" in day and "- 结果: +12%" in day
 
 # 拒写路径

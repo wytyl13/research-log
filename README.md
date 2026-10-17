@@ -24,7 +24,7 @@
 | :--- | :--- | :--- |
 | 聊天（MCP） | 在已注册的客户端里说"记一条实验……"，模型调工具写入 | 花 |
 | 命令行 | `<py> -X utf8 src/cli.py exp --title "五任务准确率" --hypothesis H1` | 不花 |
-| 外部材料 | 材料丢 `inbox/`，在 Claude Code 敲 `/import`，提炼清单确认后入库 | 花 |
+| 外部材料 | 材料丢 `records/inbox/`，在 Claude Code 敲 `/import`，提炼清单确认后入库 | 花 |
 
 MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 
@@ -60,7 +60,7 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
               │                    │                        │
 核心层         └──────────►  store.py（唯一写入口） ◄─────────┘
                                 │
-数据层        decisions/  logbook/  ideas/   ◄── aggregate.py（只读聚合）
+数据层        records/（三库 + inbox/ + processed/）   ◄── aggregate.py（只读聚合）
 ```
 
 | 模块 | 职责 | 编写规则 |
@@ -80,7 +80,7 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 | 2 | 记录字段 | 分配编号，按四种合法动作写入 | 三库文件 | `store.py` [1] |
 | 3 | 三库文件 | 固定格式抽取、链接解析、反向索引 | `CONTEXT.md` / `OVERVIEW.md` | `aggregate.py` [2] |
 | 4 | `CONTEXT.md` | 新会话开局喂给 AI | 当前研究状态 | 使用者 |
-| 可选 | `inbox/` 材料 | `/import` 提炼入库后移动文件 | `processed/` 归档 | `/import` [5] |
+| 可选 | `records/inbox/` 材料 | `/import` 提炼入库后移动文件 | `records/processed/` 归档 | `/import` [5] |
 
 ## 5. 分实体明细：五类记录
 
@@ -88,11 +88,11 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 
 | 类型 | 库 | 编号 | 通道 |
 | :--- | :--- | :--- | :--- |
-| 决策（ADR） | `decisions/` | `0001` | 三通道均可 |
-| 实验（E） | `logbook/` | `E1` | 三通道均可 |
-| 假设（H） | `logbook/` | `H1` | 三通道均可 |
-| 阅读（R） | `logbook/` | `R1` | 三通道均可 |
-| 想法卡片 | `ideas/` | 时间戳 | 三通道均可 |
+| 决策（ADR） | `records/decisions/` | `0001` | 三通道均可 |
+| 实验（E） | `records/logbook/` | `E1` | 三通道均可 |
+| 假设（H） | `records/logbook/` | `H1` | 三通道均可 |
+| 阅读（R） | `records/logbook/` | `R1` | 三通道均可 |
+| 想法卡片 | `records/ideas/` | 时间戳 | 三通道均可 |
 
 - **决策**：描述：做了什么方向/技术决定。约束：状态只能取 建议中/已采纳/已被取代/已废弃；只增不删。成本：聊天与 `/import` 花 token，命令行不花。输入数据：标题、背景、决定、后果、依据。输出数据：`decisions/NNNN.md` 与 `OVERVIEW.md` 表中一行。
 - **实验**：描述：验证什么、怎么验。约束：状态只能取 未开始/进行中/已完成/搁置；编号全局递增。成本：同上。输入数据：标题、假设编号、方案、前置。输出数据：记录本条目与表中一行，`fill_result` 回填结果/结论。
@@ -108,7 +108,7 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 | :--- | :--- | :--- |
 | `CONTEXT.md` | 给 AI 的当前研究状态，只装未完结条目与近 7 天卡片 | `aggregate.py` |
 | `OVERVIEW.md` | 给人看的全量总览：统计、三库全表、引用索引、inbox 待处理数 | `aggregate.py` |
-| `decisions/` `logbook/` `ideas/` | 三库记录文件 | `store.py` |
+| `records/` 下的三库 | 记录文件 | `store.py` |
 
 ## 7. 接口：MCP 工具
 

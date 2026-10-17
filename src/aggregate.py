@@ -22,7 +22,7 @@ _FIELD = re.compile(r"^- ([^:]+): (.*)$", re.M)
 
 def _decisions() -> list[dict]:
     out = []
-    for p in sorted((store.ROOT / "decisions").glob("*.md")):
+    for p in sorted(store.lib("decisions").glob("*.md")):
         if not p.stem.isdigit():
             continue
         text = p.read_text(encoding="utf-8")
@@ -38,7 +38,7 @@ def _decisions() -> list[dict]:
 
 def _entries() -> list[dict]:
     out = []
-    for p in sorted((store.ROOT / "logbook").glob("*.md")):
+    for p in sorted(store.lib("logbook").glob("*.md")):
         text = p.read_text(encoding="utf-8")
         heads = list(_ENTRY_HEAD.finditer(text))
         for i, m in enumerate(heads):
@@ -50,7 +50,7 @@ def _entries() -> list[dict]:
 
 def _ideas() -> list[dict]:
     out = []
-    for p in sorted((store.ROOT / "ideas").glob("*.md")):
+    for p in sorted(store.lib("ideas").glob("*.md")):
         text = p.read_text(encoding="utf-8")
         m = re.search(r"^# (.+)$", text, re.M)
         out.append({"stamp": p.stem, "title": m.group(1) if m else p.stem,
@@ -59,9 +59,9 @@ def _ideas() -> list[dict]:
 
 
 def _link_map(dec, ent, ids) -> dict[str, str]:
-    lm = {f"{d['num']:04d}": f"decisions/{d['num']:04d}.md" for d in dec}
-    lm.update({f"{e['kind']}{e['num']}": f"logbook/{e['day']}.md" for e in ent})
-    lm.update({c["stamp"]: f"ideas/{c['stamp']}.md" for c in ids})
+    lm = {f"{d['num']:04d}": f"records/decisions/{d['num']:04d}.md" for d in dec}
+    lm.update({f"{e['kind']}{e['num']}": f"records/logbook/{e['day']}.md" for e in ent})
+    lm.update({c["stamp"]: f"records/ideas/{c['stamp']}.md" for c in ids})
     return lm
 
 
@@ -77,7 +77,7 @@ def _related(e) -> str:
 
 
 def _inbox_n() -> int:
-    d = store.ROOT / "inbox"
+    d = store.lib("inbox")
     return len([p for p in d.iterdir() if p.is_file()]) if d.exists() else 0
 
 

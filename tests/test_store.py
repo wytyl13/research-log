@@ -15,7 +15,7 @@ store.init()
 adr = store.add_decision("冻结慢权重为主线", status="已采纳",
                          context="全参数更新遗忘明显", decision="任务切换后冻结慢权重",
                          consequence="待观察", basis="快慢权重可塑性")
-assert adr == "0001" and (root / "decisions" / "0001.md").exists()
+assert adr == "0001" and (root / "records" / "decisions" / "0001.md").exists()
 
 e1 = store.add_experiment("冻结慢权重后的五任务准确率", hypothesis="H1", plan="五任务顺序训练")
 h1 = store.add_hypothesis("冻结慢权重可降低遗忘")
@@ -24,12 +24,12 @@ assert (e1, h1, r1) == ("E1", "H1", "R1")
 
 e2 = store.add_experiment("稀疏更新的对照实验")
 assert e2 == "E2"  # 编号全局递增
-assert len(list((root / "logbook").glob("*.md"))) == 1  # 同日合并进一个文件
+assert len(list((root / "records" / "logbook").glob("*.md"))) == 1  # 同日合并进一个文件
 day_text = store.get("E1")
 assert day_text.count("\n## E") == 2  # 两条实验都在
 
 t1 = store.add_idea("任务分段冻结", "切换后只更新快权重", links=["0001", "E1"])
-assert (root / "ideas" / f"{t1}.md").exists()
+assert (root / "records" / "ideas" / f"{t1}.md").exists()
 t2 = store.add_idea("同分钟卡片", "测试撞名顺延")
 assert t2 != t1  # 同分钟写入，文件名顺延不覆盖
 

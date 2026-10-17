@@ -25,14 +25,14 @@ store.add_experiment("稀疏更新对照")                     # E2 未开始 �
 store.add_hypothesis("冻结可降低遗忘")                    # H1 待验证 → 进 CONTEXT
 store.add_reading("Progressive Nets", serves="H1")       # R1 未读 → 进 CONTEXT
 store.add_idea("任务分段冻结", "只更新快权重", links=["0001", "E2"])
-(root / "inbox" / "diary.md").write_text("今天想法……", encoding="utf-8")
+(root / "records" / "inbox" / "diary.md").write_text("今天想法……", encoding="utf-8")
 
 aggregate.run()
 ctx = (root / "CONTEXT.md").read_text(encoding="utf-8")
 ovw = (root / "OVERVIEW.md").read_text(encoding="utf-8")
 
 # CONTEXT 只装当前状态
-assert "[0001](decisions/0001.md)" in ctx
+assert "[0001](records/decisions/0001.md)" in ctx
 assert "0002" not in ctx                    # 已废弃决策不进
 assert "稀疏更新对照" in ctx and "冻结可降低遗忘" in ctx and "Progressive Nets" in ctx
 assert "五任务准确率" not in ctx             # 已完成实验不进
@@ -40,7 +40,7 @@ assert "任务分段冻结" in ctx                  # 近 7 天卡片进
 
 # OVERVIEW 装全量、链接可点、有引用索引和 inbox 提醒
 assert "五任务准确率" in ovw and "废弃旧路线" in ovw
-assert "[E2](logbook/" in ovw and "[0002](decisions/0002.md)" in ovw
+assert "[E2](records/logbook/" in ovw and "[0002](records/decisions/0002.md)" in ovw
 assert "引用索引" in ovw and "←" in ovw
 assert "待处理 1" in ovw
 assert "勿手改" in ctx and "勿手改" in ovw

@@ -36,9 +36,17 @@ def set_root(path) -> None:
     ROOT = Path(path)
 
 
+LIB = "records"  # 五本库共同父目录
+
+
+def lib(name: str) -> Path:
+    """库内子目录路径：ROOT/records/<name>。"""
+    return ROOT / LIB / name
+
+
 def init() -> None:
     for d in DIRS:
-        (ROOT / d).mkdir(parents=True, exist_ok=True)
+        lib(d).mkdir(parents=True, exist_ok=True)
 
 
 def _check_status(kind: str, status: str) -> None:
@@ -59,10 +67,10 @@ def _append(path: Path, text: str) -> None:
 # ponytail: 编号靠全库扫描取最大号，库到千条量级再考虑缓存
 def _next(kind: str) -> int:
     if kind == "A":
-        nums = [int(p.stem) for p in (ROOT / "decisions").glob("*.md") if p.stem.isdigit()]
+        nums = [int(p.stem) for p in lib("decisions").glob("*.md") if p.stem.isdigit()]
         return max(nums) + 1 if nums else 1
     best = 0
-    for p in (ROOT / "logbook").glob("*.md"):
+    for p in lib("logbook").glob("*.md"):
         for k, n in _HEAD_RE.findall(p.read_text(encoding="utf-8")):
             if k == kind:
                 best = max(best, int(n))
@@ -85,17 +93,17 @@ def resolve(ref: str) -> tuple[Path, int]:
     """编号 → (文件, 标题行号)。"""
     kind, val = _norm(ref)
     if kind == "A":
-        p = ROOT / "decisions" / f"{val:04d}.md"
+        p = lib("decisions") / f"{val:04d}.md"
         if not p.exists():
             raise KeyError(f"没有这个决策：{ref}")
         return p, 1
     if kind == "T":
-        p = ROOT / "ideas" / f"{val}.md"
+        p = lib("ideas") / f"{val}.md"
         if not p.exists():
             raise KeyError(f"没有这张卡片：{ref}")
         return p, 1
     pat = re.compile(rf"^## {kind}{val} · ", re.M)
-    for p in sorted((ROOT / "logbook").glob("*.md")):
+    for p in sorted(lib("logbook").glob("*.md")):
         text = p.read_text(encoding="utf-8")
         m = pat.search(text)
         if m:
@@ -120,7 +128,7 @@ def add_decision(title, status="建议中", context="", decision="", consequence
         f"## 后果\n\n{consequence}\n\n"
         f"## 依据\n\n{basis}\n"
     )
-    _write(ROOT / "decisions" / f"{n:04d}.md", text)
+    _write(lib("decisions") / f"{n:04d}.md", text)
     return f"{n:04d}"
 
 
@@ -132,7 +140,7 @@ def _entry(kind: str, n: int, title: str, values: dict) -> str:
 
 def _add_entry(kind: str, title: str, values: dict) -> str:
     n = _next(kind)
-    day = ROOT / "logbook" / f"{datetime.now():%Y-%m-%d}.md"
+    day = lib("logbook") / f"{datetime.now():%Y-%m-%d}.md"
     if not day.exists():
         _write(day, f"# {datetime.now():%Y-%m-%d} 实验记录本\n")
     _append(day, _entry(kind, n, title, values))
@@ -159,13 +167,13 @@ def add_idea(title, text, links=()) -> str:
     stamp = datetime.now()
     while True:
         name = f"{stamp:%Y%m%d%H%M}"
-        if not (ROOT / "ideas" / f"{name}.md").exists():
+        if not (lib("ideas") / f"{name}.md").exists():
             break
         stamp += timedelta(minutes=1)  # 同分钟撞名则顺延一分钟
     body = f"# {title}\n\n{text}\n"
     if links:
         body += f"\n链接：{' '.join(f'[[{l}]]' for l in links)}\n"
-    _write(ROOT / "ideas" / f"{name}.md", body)
+    _write(lib("ideas") / f"{name}.md", body)
     return name
 
 
@@ -212,8 +220,8 @@ def fill_result(ref: str, result="", conclusion="") -> None:
 def scan_links() -> dict[str, list[str]]:
     """反向索引：编号 → 引用它的文件列表。"""
     index: dict[str, list[str]] = {}
-    files = sorted((ROOT / "decisions").glob("*.md")) + \
-        sorted((ROOT / "logbook").glob("*.md")) + sorted((ROOT / "ideas").glob("*.md"))
+    files = sorted(lib("decisions").glob("*.md")) + \
+        sorted(lib("logbook").glob("*.md")) + sorted(lib("ideas").glob("*.md"))
     for p in files:
         for m in _LINK_RE.finditer(p.read_text(encoding="utf-8")):
             index.setdefault(m.group(1), []).append(p.relative_to(ROOT).as_posix())

@@ -7,7 +7,7 @@ allowed-tools: Bash(C:/ProgramData/anaconda3/python.exe:*), Bash(mv:*), Read, Gl
 
 ## 1. 清点
 
-列出 `inbox/` 下所有文件；为空则报告"inbox 为空"并结束。
+列出 `records/inbox/` 下所有文件；为空则报告"inbox 为空"并结束。
 
 ## 2. 提炼候选
 
@@ -41,7 +41,7 @@ C:/ProgramData/anaconda3/python.exe -X utf8 src/cli.py <子命令> --title "..."
 
 ## 5. 归档
 
-已处理的材料移入 `processed/`：`mv inbox/<文件> processed/`，
+已处理的材料移入 `records/processed/`：`mv records/inbox/<文件> records/processed/`，
 然后跑一次 `C:/ProgramData/anaconda3/python.exe -X utf8 cli.py build` 让统计归零。
 
 ## 6. 报告
