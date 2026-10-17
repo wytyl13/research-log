@@ -1,283 +1,220 @@
-"""store.py — 三库读写原语（v3：严格 ADR / 实验记录本 / Zettelkasten）。
+"""store.py — 三库唯一写入口。
 
-被 research-mcp/server.py（实时单条）和 sync.py（批量提炼）共用。
-铁律：只增不删——只允许新建文件、追加条目、改状态、回填结果。
-
-规范：
-  decisions/  NNNN-标题.md          节式 ADR（状态/背景/决定/后果/依据），状态用文字
-  process/    YYYY-MM-DD.md         按日一文件；条目 = "## E2 · 标题" + "- 字段: 值" 行
-  ideas/      YYYYMMDDHHMM-标题.md  原子卡片，无状态无归属，靠 [[链接]] 长出结构
-
-所有路径通过模块属性访问（selftest 可整体换到临时目录）。
+只提供四种合法动作：新建文件、追加条目、改状态行、回填结果/结论。
+编号即身份：ADR 四位序号，E/H/R 全局递增，卡片十二位时间戳。
 """
-import datetime
-import os
+from __future__ import annotations
+
 import re
-import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
-D_DIR = BASE / "decisions"
-P_DIR = BASE / "process"
-I_DIR = BASE / "ideas"
-STATE = BASE / ".记录状态.json"
-CARD = BASE / "上下文卡.md"
-OVERVIEW = BASE / "总览.md"
-NORTH = BASE / "方向.md"
-LOCK = BASE / ".写入锁"
+ROOT = Path(__file__).resolve().parent
 
-# ---- 状态枚举（store / compile / sync 四方共用的契约）----
-ADR_STATUSES = ("建议中", "已采纳", "已被取代", "已废弃")   # 「已被取代」可带（ADR-NNNN）
-HYP_STATUSES = ("待验证", "验证中", "成立", "不成立", "搁置")
-EXP_STATUSES = ("未开始", "进行中", "已完成", "搁置")
-READ_STATUSES = ("未读", "在读", "已读")
+DIRS = ("decisions", "logbook", "ideas", "inbox", "processed")
 
-ENTRY_HEAD = re.compile(r"^## ([EHRW]\d+) · (.+)$", re.M)
-FIELD_LINE = re.compile(r"^- ([^:：]+):[ \t]*(.*)$", re.M)
+STATUS = {
+    "A": ("建议中", "已采纳", "已被取代", "已废弃"),
+    "E": ("未开始", "进行中", "已完成", "搁置"),
+    "H": ("待验证", "验证中", "成立", "不成立", "搁置"),
+    "R": ("未读", "在读", "已读"),
+}
 
+ENTRY_FIELDS = {  # 条目字段固定，聚合按行抓取
+    "E": ("状态", "假设", "方案", "前置", "结果", "结论"),
+    "H": ("状态", "验证实验"),
+    "R": ("状态", "服务", "收获"),
+}
 
-def today():
-    return datetime.date.today().isoformat()
+_HEAD_RE = re.compile(r"^## ([EHR])(\d+) · ", re.M)
+_LINK_RE = re.compile(r"\[\[\s*([^\]\s]+)\s*\]\]")
 
 
-def slug(title, limit=24):
-    s = re.sub(r"[^\w一-鿿]+", "-", str(title)).strip("-")
-    return s[:limit] or "untitled"
+def set_root(path) -> None:
+    """自测用：把库根指到别处。"""
+    global ROOT
+    ROOT = Path(path)
 
 
-class _Lock:
-    """跨进程写入锁：O_CREAT|O_EXCL 自旋；持有者崩溃超过 120 秒自动清死锁。"""
-
-    def __enter__(self):
-        deadline = time.time() + 60
-        while True:
-            try:
-                self.fd = os.open(str(LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                return self
-            except FileExistsError:
-                try:
-                    if time.time() - LOCK.stat().st_mtime > 120:
-                        LOCK.unlink()
-                        continue
-                except OSError:
-                    pass
-                if time.time() > deadline:
-                    raise TimeoutError("写入锁等待超时")
-                time.sleep(0.1)
-
-    def __exit__(self, *a):
-        os.close(self.fd)
-        try:
-            LOCK.unlink()
-        except OSError:
-            pass
+def init() -> None:
+    for d in DIRS:
+        (ROOT / d).mkdir(parents=True, exist_ok=True)
 
 
-# ---------- decisions（严格 ADR）----------
+def _check_status(kind: str, status: str) -> None:
+    if status not in STATUS[kind]:
+        raise ValueError(f"非法状态「{status}」，只能用：{' / '.join(STATUS[kind])}")
 
-def _adr_titles():
-    """{编号: 标题}，解析失败的不计。"""
-    out = {}
-    for f in sorted(D_DIR.glob("????-*.md")):
-        m = re.search(r"^# (\d+)\. (.+)$", f.read_text(encoding="utf-8"), re.M)
+
+def _write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def _append(path: Path, text: str) -> None:
+    old = path.read_text(encoding="utf-8") if path.exists() else ""
+    _write(path, (old.rstrip("\n") + "\n\n" + text) if old else text)
+
+
+# ponytail: 编号靠全库扫描取最大号，库到千条量级再考虑缓存
+def _next(kind: str) -> int:
+    if kind == "A":
+        nums = [int(p.stem) for p in (ROOT / "decisions").glob("*.md") if p.stem.isdigit()]
+        return max(nums) + 1 if nums else 1
+    best = 0
+    for p in (ROOT / "logbook").glob("*.md"):
+        for k, n in _HEAD_RE.findall(p.read_text(encoding="utf-8")):
+            if k == kind:
+                best = max(best, int(n))
+    return best + 1
+
+
+def _norm(ref: str) -> tuple[str, int] | tuple[str, str]:
+    """编号归一：('A', 序号) / ('E'|'H'|'R', 序号) / ('T', 时间戳)。"""
+    s = ref.strip().upper().replace("ADR-", "")
+    if re.fullmatch(r"\d{12}", s):
+        return ("T", s)
+    if re.fullmatch(r"[EHR]\d+", s):
+        return (s[0], int(s[1:]))
+    if re.fullmatch(r"\d{1,4}", s):
+        return ("A", int(s))
+    raise KeyError(f"认不出编号：{ref}")
+
+
+def resolve(ref: str) -> tuple[Path, int]:
+    """编号 → (文件, 标题行号)。"""
+    kind, val = _norm(ref)
+    if kind == "A":
+        p = ROOT / "decisions" / f"{val:04d}.md"
+        if not p.exists():
+            raise KeyError(f"没有这个决策：{ref}")
+        return p, 1
+    if kind == "T":
+        p = ROOT / "ideas" / f"{val}.md"
+        if not p.exists():
+            raise KeyError(f"没有这张卡片：{ref}")
+        return p, 1
+    pat = re.compile(rf"^## {kind}{val} · ", re.M)
+    for p in sorted((ROOT / "logbook").glob("*.md")):
+        text = p.read_text(encoding="utf-8")
+        m = pat.search(text)
         if m:
-            out[int(m.group(1))] = m.group(2).strip()
-    return out
+            return p, text[: m.start()].count("\n") + 1
+    raise KeyError(f"没有这个条目：{ref}")
 
 
-def add_adr(title, background="", decision="", consequence="", basis="", status="已采纳"):
-    if status not in ADR_STATUSES and not status.startswith("已被取代"):
-        return f"非法状态：{status}（允许：{'/'.join(ADR_STATUSES)}）"
-    with _Lock():
-        D_DIR.mkdir(exist_ok=True)
-        titles = _adr_titles()
-        for n, t in titles.items():
-            if t == title:
-                return f"已存在同题 ADR-{n:04d}，跳过：{title}"
-        n = max(titles, default=0) + 1
-        f = D_DIR / f"{n:04d}-{slug(title)}.md"
-        f.write_text(f"""# {n}. {title}
-
-日期: {today()}
-
-## 状态
-
-{status}
-
-## 背景
-
-{background}
-
-## 决定
-
-{decision}
-
-## 后果
-
-{consequence}
-
-## 依据
-
-{basis}
-""", encoding="utf-8")
-    return f"ADR-{n:04d} 已记录：{title}"
+def get(ref: str) -> str:
+    p, _ = resolve(ref)
+    return p.read_text(encoding="utf-8")
 
 
-# ---------- ideas（严格 Zettelkasten）----------
+def add_decision(title, status="建议中", context="", decision="", consequence="", basis="") -> str:
+    _check_status("A", status)
+    n = _next("A")
+    text = (
+        f"# {n}. {title}\n\n"
+        f"日期: {datetime.now():%Y-%m-%d}\n\n"
+        f"## 状态\n\n{status}\n\n"
+        f"## 背景\n\n{context}\n\n"
+        f"## 决定\n\n{decision}\n\n"
+        f"## 后果\n\n{consequence}\n\n"
+        f"## 依据\n\n{basis}\n"
+    )
+    _write(ROOT / "decisions" / f"{n:04d}.md", text)
+    return f"{n:04d}"
 
-def add_card(title, body="", links=None):
-    with _Lock():
-        I_DIR.mkdir(exist_ok=True)
-        for f in sorted(I_DIR.glob("*.md")):
-            m = re.search(r"^# (.+)$", f.read_text(encoding="utf-8"), re.M)
-            if m and m.group(1).strip() == title:
-                return f"已存在同题卡片 {f.stem}，跳过：{title}"
-        ts = datetime.datetime.now()
-        while True:
-            stem = f"{ts:%Y%m%d%H%M}-{slug(title, 30)}"
-            if not (I_DIR / (stem + ".md")).exists():
+
+def _entry(kind: str, n: int, title: str, values: dict) -> str:
+    lines = [f"## {kind}{n} · {title}", ""]
+    lines += [f"- {f}: {values.get(f, '')}" for f in ENTRY_FIELDS[kind]]
+    return "\n".join(lines) + "\n"
+
+
+def _add_entry(kind: str, title: str, values: dict) -> str:
+    n = _next(kind)
+    day = ROOT / "logbook" / f"{datetime.now():%Y-%m-%d}.md"
+    if not day.exists():
+        _write(day, f"# {datetime.now():%Y-%m-%d} 实验记录本\n")
+    _append(day, _entry(kind, n, title, values))
+    return f"{kind}{n}"
+
+
+def add_experiment(title, status="未开始", hypothesis="", plan="", prior="", result="", conclusion="") -> str:
+    _check_status("E", status)
+    return _add_entry("E", title, {"状态": status, "假设": hypothesis, "方案": plan,
+                                   "前置": prior, "结果": result, "结论": conclusion})
+
+
+def add_hypothesis(title, status="待验证", verify="") -> str:
+    _check_status("H", status)
+    return _add_entry("H", title, {"状态": status, "验证实验": verify})
+
+
+def add_reading(title, status="未读", serves="", gain="") -> str:
+    _check_status("R", status)
+    return _add_entry("R", title, {"状态": status, "服务": serves, "收获": gain})
+
+
+def add_idea(title, text, links=()) -> str:
+    stamp = datetime.now()
+    while True:
+        name = f"{stamp:%Y%m%d%H%M}"
+        if not (ROOT / "ideas" / f"{name}.md").exists():
+            break
+        stamp += timedelta(minutes=1)  # 同分钟撞名则顺延一分钟
+    body = f"# {title}\n\n{text}\n"
+    if links:
+        body += f"\n链接：{' '.join(f'[[{l}]]' for l in links)}\n"
+    _write(ROOT / "ideas" / f"{name}.md", body)
+    return name
+
+
+def set_status(ref: str, new_status: str) -> None:
+    kind, _ = _norm(ref)
+    _check_status(kind, new_status)
+    p, line = resolve(ref)
+    lines = p.read_text(encoding="utf-8").split("\n")
+    if kind == "A":
+        i = lines.index("## 状态")
+        j = next(k for k in range(i + 1, len(lines)) if lines[k].strip())
+        lines[j] = new_status
+    else:
+        for k in range(line, len(lines)):  # 只在条目块内找，到下个 ## 为止
+            if lines[k].startswith("## "):
                 break
-            ts += datetime.timedelta(minutes=1)   # 同分钟撞号则递增
-        text = f"# {title}\n\n{body}\n"
-        links = [l for l in (links or []) if l]
-        if links:
-            text += "\n链接：" + " ".join(f"[[{l}]]" for l in links) + "\n"
-        (I_DIR / (stem + ".md")).write_text(text, encoding="utf-8")
-    return f"卡片 {stem} 已记录：{title}"
+            if lines[k].startswith("- 状态:"):
+                lines[k] = f"- 状态: {new_status}"
+                break
+        else:
+            raise ValueError(f"{ref} 条目里没有状态行")
+    _write(p, "\n".join(lines))
 
 
-# ---------- process（严格实验记录本：按日一文件，条目追加）----------
-
-def _entries():
-    """全部条目 [{day, id, title, fields}]，按日文件名排序。"""
-    out = []
-    for f in sorted(P_DIR.glob("????-??-??.md")):
-        t = f.read_text(encoding="utf-8")
-        heads = list(ENTRY_HEAD.finditer(t))
-        for i, m in enumerate(heads):
-            block = t[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(t)]
-            out.append(dict(day=f.stem, id=m.group(1), title=m.group(2).strip(),
-                            fields={k.strip(): v.strip() for k, v in FIELD_LINE.findall(block)}))
-    return out
-
-
-def _next_entry_num(letter):
-    return max((int(e["id"][1:]) for e in _entries() if e["id"][0] == letter), default=0) + 1
-
-
-def _entry_statuses(letter):
-    return {"E": EXP_STATUSES, "H": HYP_STATUSES, "R": READ_STATUSES}[letter]
+def fill_result(ref: str, result="", conclusion="") -> None:
+    if _norm(ref)[0] != "E":
+        raise ValueError("只有实验条目能回填结果/结论")
+    p, line = resolve(ref)
+    lines = p.read_text(encoding="utf-8").split("\n")
+    hit = {"结果": False, "结论": False}
+    for k in range(line, len(lines)):  # 条目块内只碰结果/结论两行
+        if lines[k].startswith("## "):
+            break
+        for f, v in (("结果", result), ("结论", conclusion)):
+            if v and lines[k].startswith(f"- {f}:"):
+                lines[k] = f"- {f}: {v}"
+                hit[f] = True
+    for f, v in (("结果", result), ("结论", conclusion)):
+        if v and not hit[f]:
+            raise ValueError(f"{ref} 条目里没有{f}行")
+    _write(p, "\n".join(lines))
 
 
-def add_entry(letter, title, fields):
-    """往今天的日文件追加一条条目。letter ∈ E/H/R/W；E/H/R 必须带合法「状态」。"""
-    letter = letter.upper()
-    if letter not in "EHRW":
-        return f"非法条目类型：{letter}"
-    fields = {k: str(v).strip() for k, v in fields.items() if str(v).strip()}
-    if letter in "EHR":
-        st = fields.get("状态") or {"E": "未开始", "H": "待验证", "R": "未读"}[letter]
-        if st not in _entry_statuses(letter):
-            return f"非法状态：{st}（{letter} 允许：{'/'.join(_entry_statuses(letter))}）"
-        fields = {"状态": st, **fields}
-    with _Lock():
-        P_DIR.mkdir(exist_ok=True)
-        eid = f"{letter}{_next_entry_num(letter)}"
-        day = P_DIR / f"{datetime.date.today():%Y-%m-%d}.md"
-        if not day.exists():
-            day.write_text(f"# {day.stem} 实验记录本\n", encoding="utf-8")
-        with day.open("a", encoding="utf-8") as fh:
-            fh.write(f"\n## {eid} · {title}\n")
-            for k, v in fields.items():
-                fh.write(f"- {k}: {v}\n")
-    return f"{eid} 已登记：{title}"
-
-
-def _find_entry(eid):
-    """返回 (日文件, 全文, 条目起始行号, 条目结束行号)；找不到返回 None。"""
-    for f in sorted(P_DIR.glob("????-??-??.md"), reverse=True):
-        lines = f.read_text(encoding="utf-8").splitlines()
-        for i, l in enumerate(lines):
-            if l.startswith(f"## {eid} ·"):
-                end = next((j for j in range(i + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
-                return f, lines, i, end
-    return None
-
-
-def set_status(target, status, note=""):
-    """改状态。目标：adr-005 / 0005 / E2 / H1 / R1。想法卡片没有状态。"""
-    t = str(target).strip().lower().replace("：", ":")
-    if (m := re.fullmatch(r"adr[- :]?0*(\d+)", t)):
-        n = int(m.group(1))
-        if status not in ADR_STATUSES and not status.startswith("已被取代"):
-            return f"非法状态：{status}（允许：{'/'.join(ADR_STATUSES)}）"
-        files = list(D_DIR.glob(f"{n:04d}-*.md"))
-        if not files:
-            return f"未找到 ADR-{n:04d}"
-        with _Lock():
-            f = files[0]
-            text = f.read_text(encoding="utf-8")
-            new = re.sub(r"(## 状态\s*\n+)[^\n]+", rf"\g<1>{status}", text, count=1)
-            if new == text and "## 状态" not in text:
-                return f"ADR-{n:04d} 文件里没有状态节"
-            if note:
-                new += f"\n> {today()} 备注: {note}\n"
-            f.write_text(new, encoding="utf-8")
-        return f"ADR-{n:04d} 状态改为 {status}"
-    if (m := re.fullmatch(r"([ehrw])[- :]?0*(\d+)", t)):
-        eid = f"{m.group(1).upper()}{m.group(2)}"
-        letter = eid[0]
-        if letter == "W":
-            return "周记条目没有状态"
-        allowed = _entry_statuses(letter)
-        if status not in allowed:
-            return f"非法状态：{status}（{eid} 允许：{'/'.join(allowed)}）"
-        found = _find_entry(eid)
-        if not found:
-            return f"未找到 {eid}"
-        f, lines, start, end = found
-        with _Lock():
-            note_s = f"（{today()}：{note}）" if note else ""
-            for i in range(start + 1, end):
-                if lines[i].startswith("- 状态:"):
-                    lines[i] = f"- 状态: {status}{note_s}"
-                    break
-            else:
-                lines.insert(start + 1, f"- 状态: {status}{note_s}")
-            f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return f"{eid} 状态改为 {status}"
-    return f"无法识别目标：{target}（想法卡片没有状态）"
-
-
-def fill_result(eid, result="", conclusion=""):
-    """回填实验的结果/结论；已有内容则追加（旧；新）。"""
-    eid = str(eid).strip().upper()
-    found = _find_entry(eid)
-    if not found:
-        return f"未找到实验 {eid}"
-    f, lines, start, end = found
-    with _Lock():
-        for key, val in (("结果", result), ("结论", conclusion)):
-            if not str(val).strip():
-                continue
-            for i in range(start + 1, end):
-                if lines[i].startswith(f"- {key}:"):
-                    old = lines[i][len(f"- {key}:"):].strip()
-                    lines[i] = f"- {key}: " + (f"{old}；{val}" if old else val)
-                    break
-            else:
-                lines.insert(end, f"- {key}: {val}")
-                end += 1
-        f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return f"{eid} 已回填结果/结论"
-
-
-def resolve(ref):
-    """把 adr-005 / 5 / 0005 / 卡片文件名（或其片段）解析成实际文件 stem；失败原样返回。"""
-    ref = str(ref).strip()
-    if (m := re.fullmatch(r"(?:adr[- ]?)?0*(\d+)", ref, re.I)):
-        hits = [f.stem for f in D_DIR.glob(f"{int(m.group(1)):04d}-*.md")]
-        if hits:
-            return hits[0]
-    hits = [f.stem for f in I_DIR.glob(f"*{ref}*.md")]
-    return hits[0] if len(hits) == 1 else ref
+def scan_links() -> dict[str, list[str]]:
+    """反向索引：编号 → 引用它的文件列表。"""
+    index: dict[str, list[str]] = {}
+    files = sorted((ROOT / "decisions").glob("*.md")) + \
+        sorted((ROOT / "logbook").glob("*.md")) + sorted((ROOT / "ideas").glob("*.md"))
+    for p in files:
+        for m in _LINK_RE.finditer(p.read_text(encoding="utf-8")):
+            index.setdefault(m.group(1), []).append(p.relative_to(ROOT).as_posix())
+    return index
