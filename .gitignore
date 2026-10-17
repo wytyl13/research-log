@@ -1,6 +1,7 @@
 _backup_v2/
+_backup_v3/
 _archive/
 _new_v3/
 __pycache__/
 *.pyc
-.claude/
+.claude/settings.local.json
