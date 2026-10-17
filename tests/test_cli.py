@@ -1,6 +1,9 @@
 """test_cli.py — cli.py 最小自测：--root 临时目录跑全子命令。"""
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import cli
 

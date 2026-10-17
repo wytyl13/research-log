@@ -15,7 +15,7 @@
 初始化（建齐五目录并生成两份聚合文件，可重复执行）：
 
 ```bash
-<py> -X utf8 cli.py build
+<py> -X utf8 src/cli.py build
 ```
 
 三个记录入口：
@@ -23,14 +23,14 @@
 | 入口 | 用法 | token |
 | :--- | :--- | :--- |
 | 聊天（MCP） | 在已注册的客户端里说"记一条实验……"，模型调工具写入 | 花 |
-| 命令行 | `<py> -X utf8 cli.py exp --title "五任务准确率" --hypothesis H1` | 不花 |
+| 命令行 | `<py> -X utf8 src/cli.py exp --title "五任务准确率" --hypothesis H1` | 不花 |
 | 外部材料 | 材料丢 `inbox/`，在 Claude Code 敲 `/import`，提炼清单确认后入库 | 花 |
 
 MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 
 - Claude Code：
   ```bash
-  claude mcp add research-log -- C:/ProgramData/anaconda3/python.exe C:/Users/weiyutao/20260823/continual_learning/research_mcp.py
+  claude mcp add research-log -- C:/ProgramData/anaconda3/python.exe C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py
   ```
 - Claude Desktop（`claude_desktop_config.json`）：
   ```json
@@ -38,17 +38,17 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
     "mcpServers": {
       "research-log": {
         "command": "C:/ProgramData/anaconda3/python.exe",
-        "args": ["C:/Users/weiyutao/20260823/continual_learning/research_mcp.py"]
+        "args": ["C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py"]
       }
     }
   }
   ```
-- Cherry Studio：设置 → MCP 服务 → 新建：命令 `C:/ProgramData/anaconda3/python.exe`，参数 `C:/Users/weiyutao/20260823/continual_learning/research_mcp.py`。
+- Cherry Studio：设置 → MCP 服务 → 新建：命令 `C:/ProgramData/anaconda3/python.exe`，参数 `C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py`。
 
 自测（四个脚本，各自独立跑）：
 
 ```bash
-<py> -X utf8 test_store.py && <py> -X utf8 test_aggregate.py && <py> -X utf8 test_cli.py && <py> -X utf8 test_mcp.py
+<py> -X utf8 tests/test_store.py && <py> -X utf8 tests/test_aggregate.py && <py> -X utf8 tests/test_cli.py && <py> -X utf8 tests/test_mcp.py
 ```
 
 ## 3. 架构
@@ -131,13 +131,13 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 
 > 编号引用映射表。
 
-`<!-- 核心 store.py -->`
+`<!-- 核心 src/store.py -->`
 
-- [1] `store.py`：`add_*` / `set_status` / `fill_result` / `resolve` / `scan_links`
-- [2] `aggregate.py`：`run()`
+- [1] `src/store.py`：`add_*` / `set_status` / `fill_result` / `resolve` / `scan_links`
+- [2] `src/aggregate.py`：`run()`
 
 `<!-- 入口层 -->`
 
-- [3] `cli.py`：`main()`（八个子命令）
-- [4] `research_mcp.py`：八个 `@mcp.tool()`
+- [3] `src/cli.py`：`main()`（八个子命令）
+- [4] `src/research_mcp.py`：八个 `@mcp.tool()`
 - [5] `.claude/commands/import.md`：`/import` 六步流程

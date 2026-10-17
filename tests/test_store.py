@@ -1,6 +1,9 @@
 """test_store.py — store.py 最小自测：临时目录里跑全流程。"""
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import store
 

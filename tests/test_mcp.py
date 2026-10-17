@@ -1,6 +1,9 @@
 """test_mcp.py — research_mcp 工具函数最小自测（不走 MCP 协议层）。"""
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import research_mcp as rm
 import store

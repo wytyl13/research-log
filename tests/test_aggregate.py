@@ -1,6 +1,9 @@
 """test_aggregate.py — aggregate.py 最小自测：造记录 → 聚合 → 断言两份产物。"""
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import aggregate
 import store

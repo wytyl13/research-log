@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent  # 源码在 src/，库根是它的上一级
 
 DIRS = ("decisions", "logbook", "ideas", "inbox", "processed")
 

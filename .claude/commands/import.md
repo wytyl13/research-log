@@ -30,7 +30,7 @@ allowed-tools: Bash(C:/ProgramData/anaconda3/python.exe:*), Bash(mv:*), Read, Gl
 在仓库根目录逐条执行（格式受控，状态必须取自固定枚举）：
 
 ```
-C:/ProgramData/anaconda3/python.exe -X utf8 cli.py <子命令> --title "..." ...
+C:/ProgramData/anaconda3/python.exe -X utf8 src/cli.py <子命令> --title "..." ...
 ```
 
 - `adr`：`--title --status(建议中/已采纳/已被取代/已废弃) --context --decision --consequence --basis`

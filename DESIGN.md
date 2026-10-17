@@ -169,10 +169,12 @@
 ├── ideas/                      # 卡片库：一想法一文件
 ├── inbox/                      # 待提炼的外部材料
 ├── processed/                  # 提炼完的归档
-├── store.py                    # 唯一写入口
-├── aggregate.py                # 聚合（只读）
-├── cli.py                      # 命令行入口
-├── research_mcp.py             # MCP 服务入口
+├── src/
+│   ├── store.py                # 唯一写入口
+│   ├── aggregate.py            # 聚合（只读）
+│   ├── cli.py                  # 命令行入口
+│   └── research_mcp.py         # MCP 服务入口
+├── tests/                      # 四套自测
 ├── CONTEXT.md                  # 聚合产物（给 AI 的开局状态）
 ├── OVERVIEW.md                 # 聚合产物（给人的全貌）
 ├── DESIGN.md / README.md / CLAUDE.md
@@ -183,10 +185,10 @@
 
 | 文件 | 职责 | 依赖 |
 | --- | --- | --- |
-| `store.py` | 唯一写入口：四种动作（新建/追加/改状态/回填）、编号分配、编号→路径解析、引用扫描 | 只写库文件 |
-| `aggregate.py` | 只读聚合：扫三库 → 生成 CONTEXT.md + OVERVIEW.md（链接解析、反向索引） | 只读库 |
-| `cli.py` | 命令行入口：记一条、强制重新聚合 | store + aggregate |
-| `research_mcp.py` | MCP 服务：把聊天里的记录请求转成 store 调用 | store + aggregate |
+| `src/store.py` | 唯一写入口：四种动作（新建/追加/改状态/回填）、编号分配、编号→路径解析、引用扫描 | 只写库文件 |
+| `src/aggregate.py` | 只读聚合：扫三库 → 生成 CONTEXT.md + OVERVIEW.md（链接解析、反向索引） | 只读库 |
+| `src/cli.py` | 命令行入口：记一条、强制重新聚合 | store + aggregate |
+| `src/research_mcp.py` | MCP 服务：把聊天里的记录请求转成 store 调用 | store + aggregate |
 | `.claude/commands/import.md` | `/import` 命令词：指示模型提炼 inbox 材料 → 调 cli 入库 → 移入 processed | cli |
 
 ### 4.3 依赖方向与铁律
@@ -275,3 +277,4 @@
 | 2026-10-17 | §5 接口设计定稿                                  | CLI 8 个子命令；MCP 8 个工具（含 `get` 按编号取原文）；`/import` 提炼清单先给用户确认再落库 | 用户核对通过；全文检索暂不做，靠 CONTEXT.md 与编号定位                                                             |
 | 2026-10-17 | v4 六步实施                                      | 全部照冻结设计施工：store → aggregate → cli/mcp → `/import` → 收口，四套自测通过 | 滚动式逐步确认，每步先给要点清单征得同意再动手                                                                     |
 | 2026-10-17 | git 收口                                         | `.gitignore` 忽略 `inbox/`、`processed/`（原材料含隐私）；三库与聚合产物进 git；提交并打标签 `v4-final` | 记录是资产要版本化；日记/聊天记录等原材料不入版本库                                                               |
+| 2026-10-18 | 根目录收纳                                       | 源码入 `src/`、自测入 `tests/`；`store.ROOT` 改指上一级；README/命令路径同步；DESIGN/CONTEXT/OVERVIEW 留根 | 用户要求清理；DESIGN 受 `design-doc` 根目录约定，CONTEXT/OVERVIEW 是账本门面与跨项目引用入口                      |
