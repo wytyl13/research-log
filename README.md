@@ -28,9 +28,9 @@
 
 MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 
-- Claude Code：
+- Claude Code（user 级，注册一次这台机上所有项目可用）：
   ```bash
-  claude mcp add research-log -- C:/ProgramData/anaconda3/python.exe C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py
+  claude mcp add --scope user research-log -- C:/ProgramData/anaconda3/python.exe C:/Users/weiyutao/20260823/research-log/src/research_mcp.py
   ```
 - Claude Desktop（`claude_desktop_config.json`）：
   ```json
@@ -38,12 +38,12 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
     "mcpServers": {
       "research-log": {
         "command": "C:/ProgramData/anaconda3/python.exe",
-        "args": ["C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py"]
+        "args": ["C:/Users/weiyutao/20260823/research-log/src/research_mcp.py"]
       }
     }
   }
   ```
-- Cherry Studio：设置 → MCP 服务 → 新建：命令 `C:/ProgramData/anaconda3/python.exe`，参数 `C:/Users/weiyutao/20260823/continual_learning/src/research_mcp.py`。
+- Cherry Studio：设置 → MCP 服务 → 新建：命令 `C:/ProgramData/anaconda3/python.exe`，参数 `C:/Users/weiyutao/20260823/research-log/src/research_mcp.py`。
 
 自测（四个脚本，各自独立跑）：
 
@@ -141,3 +141,17 @@ MCP 注册（三处任选，`research_mcp.py` 用绝对路径）：
 - [3] `src/cli.py`：`main()`（八个子命令）
 - [4] `src/research_mcp.py`：八个 `@mcp.tool()`
 - [5] `.claude/commands/import.md`：`/import` 六步流程
+
+## 9. 跨项目复用现状与后续规划
+
+### 现状（2026-10-18）
+
+- 本项目是 17 条通用 skills（`.claude/skills/`）的**母本**；已有三个项目复用。复制方式：整个 `.claude/skills/` 目录拷走；`.claude/commands/`（`/import`）绑定本项目 `records/inbox/` 与 `cli.py`，不随拷
+- `research-log` MCP 已注册 user 级：这台机所有项目可直接记录，无需任何配置；记录路径按脚本位置解析，**各项目的记录集中落回本项目 `records/`**（跨项目共用一套记录库）
+- 维护纪律：别的项目里改出的规则优化，当场同步回灌母本，防止多份漂移
+
+### 后续优化（已论证可行，暂缓）
+
+- 拆全局插件 `dev-rules`：独立 git 仓（`.claude-plugin/plugin.json` + `skills/`），directory 源登记进 `~/.claude/settings.json`，路由行放新建的 `~/.claude/CLAUDE.md`；此后改规则只改插件仓一份，所有项目下个会话生效
+- 触发条件：复制/回灌开始烦了，或出现第一个分享对象
+- 跨电脑：两仓 push GitHub，第二台机 clone + 各一条登记命令；此后更新只需 `git pull`（登记的是路径，不重装）

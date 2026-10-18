@@ -280,3 +280,5 @@
 | 2026-10-17 | git 收口                                         | `.gitignore` 忽略 `inbox/`、`processed/`（原材料含隐私）；三库与聚合产物进 git；提交并打标签 `v4-final` | 记录是资产要版本化；日记/聊天记录等原材料不入版本库                                                               |
 | 2026-10-18 | 根目录收纳                                       | 源码入 `src/`、自测入 `tests/`；`store.ROOT` 改指上一级；README/命令路径同步；DESIGN/CONTEXT/OVERVIEW 留根 | 用户要求清理；DESIGN 受 `design-doc` 根目录约定，CONTEXT/OVERVIEW 是账本门面与跨项目引用入口                      |
 | 2026-10-18 | 五本库归入 `records/`                            | 库路径统一 `records/<名>`；store 新增 `lib()` 路径函数；聚合链接带 `records/` 前缀 | 用户要求归类；趁库为空成本最低，"records/ = 账本本体"心智更清晰                                                    |
+| 2026-10-18 | 17 条通用 skills 是否拆成全局插件                | 暂缓；先各项目复制，本仓为母本，改出的规则优化须回灌母本                           | 用户明示"这个工作我后面再考虑"；已有三个项目要用，拆插件方案已论证可行，触发条件与做法记入 README §9                  |
+| 2026-10-18 | 项目目录更名                                       | `continual_learning` → `research-log`，与 MCP 注册名一致                            | 用户要求名实相符；README 注册示例与 `~/.claude.json` 注册路径同步更新                                                |
